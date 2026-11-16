@@ -112,9 +112,13 @@ func (s *Stream) Connect(
 	//return nil, errors.New("Failed to get result")
 }
 
+// ReplyConnect answers a connect command with the transaction ID the client
+// used. The specification says it is always 1, but some clients (the
+// PlayStation 5) send 0 and ignore an answer carrying another ID.
 func (s *Stream) ReplyConnect(
 	chunkStreamID int,
 	timestamp uint32,
+	transactionID int64,
 	body *message.NetConnectionConnectResult,
 ) error {
 	var commandName string
@@ -128,7 +132,7 @@ func (s *Stream) ReplyConnect(
 	return s.writeCommandMessage(
 		chunkStreamID, timestamp,
 		commandName,
-		1, // 7.2.1.2, flow.6
+		transactionID,
 		body,
 	)
 }

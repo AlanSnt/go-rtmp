@@ -58,7 +58,7 @@ func (h *serverControlNotConnectedHandler) onCommand(
 				result := h.newConnectErrorResult()
 
 				l.Infof("Connect(Error): ResponseBody = %#v, Err = %+v", result, err)
-				if err1 := h.sh.stream.ReplyConnect(chunkStreamID, timestamp, result); err1 != nil {
+				if err1 := h.sh.stream.ReplyConnect(chunkStreamID, timestamp, cmdMsg.TransactionID, result); err1 != nil {
 					err = errors.Wrapf(err, "Failed to reply response: Err = %+v", err1)
 				}
 			}
@@ -98,7 +98,7 @@ func (h *serverControlNotConnectedHandler) onCommand(
 		result := h.newConnectSuccessResult()
 
 		l.Infof("Connect: ResponseBody = %#v", result)
-		if err := h.sh.stream.ReplyConnect(chunkStreamID, timestamp, result); err != nil {
+		if err := h.sh.stream.ReplyConnect(chunkStreamID, timestamp, cmdMsg.TransactionID, result); err != nil {
 			return err
 		}
 		l.Info("Connected")
