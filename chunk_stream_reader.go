@@ -20,8 +20,9 @@ type ChunkStreamReader struct {
 	messageLength   uint32 // max, 24bits
 	messageTypeID   byte
 	messageStreamID uint32
-	// A fmt 3 chunk repeats the extended timestamp of the header it continues.
-	extendedTimestamp bool
+	// The 4 bytes a fmt 3 chunk repeats after a header with an extended
+	// timestamp; nil when the last header had none.
+	extendedTimestamp []byte
 
 	buf       bytes.Buffer
 	completed bool

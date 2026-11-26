@@ -8,7 +8,10 @@
 package rtmp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"math"
 	"sync"
@@ -60,9 +63,14 @@ func NewChunkStreamer(r io.Reader, w io.Writer, config *StreamControlStateConfig
 		config = defaultStreamControlStateConfig
 	}
 
+	br, ok := r.(*bufio.Reader)
+	if !ok {
+		br = bufio.NewReader(r)
+	}
+
 	cs := &ChunkStreamer{
 		r: &ChunkStreamerReader{
-			reader: r,
+			reader: br,
 		},
 		w: &ChunkStreamerWriter{
 			writer: w,
@@ -222,6 +230,12 @@ func (cs *ChunkStreamer) readChunk() (*ChunkStreamReader, error) {
 		reader.completed = false
 	}
 
+	// Only fmt 3 continues a message: any other header over unfinished bytes means
+	// the stream is out of step, and reading on would decode garbage.
+	if bh.fmt != 3 && reader.buf.Len() > 0 {
+		return nil, errors.Errorf("chunk stream %d holds %d bytes of a %d-byte message", bh.chunkStreamID, reader.buf.Len(), reader.messageLength)
+	}
+
 	reader.basicHeader = bh
 	reader.messageHeader = mh
 
@@ -232,22 +246,30 @@ func (cs *ChunkStreamer) readChunk() (*ChunkStreamReader, error) {
 		reader.messageLength = mh.messageLength
 		reader.messageTypeID = mh.messageTypeID
 		reader.messageStreamID = mh.messageStreamID
-		reader.extendedTimestamp = mh.extended
+		reader.extendedTimestamp = repeatedTimestamp(mh.extended, mh.timestamp)
 
 	case 1:
 		reader.timestampDelta = mh.timestampDelta
 		reader.messageLength = mh.messageLength
 		reader.messageTypeID = mh.messageTypeID
-		reader.extendedTimestamp = mh.extended
+		reader.extendedTimestamp = repeatedTimestamp(mh.extended, mh.timestampDelta)
 
 	case 2:
 		reader.timestampDelta = mh.timestampDelta
-		reader.extendedTimestamp = mh.extended
+		reader.extendedTimestamp = repeatedTimestamp(mh.extended, mh.timestampDelta)
 
 	case 3:
-		if reader.extendedTimestamp {
-			if _, err := io.ReadFull(cs.r, cs.cacheBuffer[:4]); err != nil {
+		if reader.extendedTimestamp != nil {
+			// The spec has every fmt 3 chunk repeat it, but some writers leave it
+			// out (this library's own among them): take the 4 bytes only when they match.
+			next, err := cs.r.Peek(4)
+			if err != nil {
 				return nil, err
+			}
+			if bytes.Equal(next, reader.extendedTimestamp) {
+				if _, err := io.ReadFull(cs.r, cs.cacheBuffer[:4]); err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -256,12 +278,6 @@ func (cs *ChunkStreamer) readChunk() (*ChunkStreamReader, error) {
 	}
 
 	//cs.logger.Debugf("(READ) MessageLength = %d, Current = %d", reader.messageLength, reader.buf.Len())
-
-	// Only fmt 3 continues a message: any other header over unfinished bytes means
-	// the stream is out of step, and reading on would decode garbage.
-	if bh.fmt != 3 && reader.buf.Len() > 0 {
-		return nil, errors.Errorf("chunk stream %d holds %d bytes of a %d-byte message", bh.chunkStreamID, reader.buf.Len(), reader.messageLength)
-	}
 
 	expectLen := int(reader.messageLength) - reader.buf.Len()
 
@@ -286,6 +302,15 @@ func (cs *ChunkStreamer) readChunk() (*ChunkStreamReader, error) {
 	reader.completed = true
 
 	return reader, nil
+}
+
+// repeatedTimestamp returns the 4 bytes a fmt 3 chunk repeats after a header
+// whose timestamp was extended, or nil when it was not.
+func repeatedTimestamp(extended bool, value uint32) []byte {
+	if !extended {
+		return nil
+	}
+	return binary.BigEndian.AppendUint32(nil, value)
 }
 
 func (cs *ChunkStreamer) writeChunk(writer *ChunkStreamWriter) (bool, error) {
