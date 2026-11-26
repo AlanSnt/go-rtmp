@@ -8,11 +8,11 @@
 package rtmp
 
 import (
-	"io"
+	"bufio"
 )
 
 type ChunkStreamerReader struct {
-	reader            io.Reader
+	reader            *bufio.Reader
 	totalReadBytes    uint32 // TODO: Check overflow
 	fragmentReadBytes uint32
 }
@@ -22,6 +22,11 @@ func (r *ChunkStreamerReader) Read(b []byte) (int, error) {
 	r.totalReadBytes += uint32(n)
 	r.fragmentReadBytes += uint32(n)
 	return n, err
+}
+
+// Peek returns the next n bytes without reading them.
+func (r *ChunkStreamerReader) Peek(n int) ([]byte, error) {
+	return r.reader.Peek(n)
 }
 
 func (r *ChunkStreamerReader) TotalReadBytes() uint32 {

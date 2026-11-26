@@ -245,6 +245,7 @@ func TestChunkMessageHeader(t *testing.T) {
 			fmt:  0,
 			value: &chunkMessageHeader{
 				timestamp:       extendedBoundary.timestamp,
+				extended:        true,
 				messageLength:   extendedBoundary.messageLength,
 				messageTypeID:   extendedBoundary.messageTypeID,
 				messageStreamID: extendedBoundary.messageStreamID,
@@ -267,6 +268,7 @@ func TestChunkMessageHeader(t *testing.T) {
 			fmt:  1,
 			value: &chunkMessageHeader{
 				timestampDelta: extendedBoundary.timestampDelta,
+				extended:       true,
 				messageLength:  extendedBoundary.messageLength,
 				messageTypeID:  extendedBoundary.messageTypeID,
 			},
@@ -286,6 +288,7 @@ func TestChunkMessageHeader(t *testing.T) {
 			fmt:  2,
 			value: &chunkMessageHeader{
 				timestampDelta: extendedBoundary.timestampDelta,
+				extended:       true,
 			},
 			binary: []byte{
 				// Timestamp Delta MARKER(BigEndian, 24bits)
@@ -300,6 +303,7 @@ func TestChunkMessageHeader(t *testing.T) {
 			fmt:  0,
 			value: &chunkMessageHeader{
 				timestamp:       extended.timestamp,
+				extended:        true,
 				messageLength:   extended.messageLength,
 				messageTypeID:   extended.messageTypeID,
 				messageStreamID: extended.messageStreamID,
@@ -322,6 +326,7 @@ func TestChunkMessageHeader(t *testing.T) {
 			fmt:  1,
 			value: &chunkMessageHeader{
 				timestampDelta: extended.timestampDelta,
+				extended:       true,
 				messageLength:  extended.messageLength,
 				messageTypeID:  extended.messageTypeID,
 			},
@@ -341,6 +346,7 @@ func TestChunkMessageHeader(t *testing.T) {
 			fmt:  2,
 			value: &chunkMessageHeader{
 				timestampDelta: extended.timestampDelta,
+				extended:       true,
 			},
 			binary: []byte{
 				// Timestamp Delta MARKER(BigEndian, 24bits)

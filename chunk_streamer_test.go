@@ -573,6 +573,28 @@ func TestStreamerSkipsEmptyMessagesOfAnyType(t *testing.T) {
 	require.Equal(t, "next", string(content))
 }
 
+func TestStreamerRejectsANewMessageOverUnfinishedBytes(t *testing.T) {
+	firstChunk := append([]byte{
+		0x04,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 200,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+	}, bytes.Repeat([]byte{0xAA}, 128)...)
+	sameLengthChunk := append([]byte{
+		0x44,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 128, // as long as what is held: it used to come back holding the video's bytes
+		byte(message.TypeIDAudioMessage),
+	}, bytes.Repeat([]byte{0xBB}, 128)...)
+	in := append(firstChunk, sameLengthChunk...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var msg ChunkMessage
+	_, _, err := streamer.Read(&msg)
+	require.EqualError(t, err, "chunk stream 4 holds 128 bytes of a 200-byte message")
+}
+
 func TestStreamerRejectsAMessageShorterThanWhatItAlreadyHolds(t *testing.T) {
 	firstChunk := append([]byte{
 		0x04,
@@ -592,5 +614,86 @@ func TestStreamerRejectsAMessageShorterThanWhatItAlreadyHolds(t *testing.T) {
 
 	var msg ChunkMessage
 	_, _, err := streamer.Read(&msg)
-	require.EqualError(t, err, "chunk stream 4 holds 128 bytes of a 10-byte message")
+	require.EqualError(t, err, "chunk stream 4 holds 128 bytes of a 200-byte message")
+}
+
+// Past 0xFFFFFF ms (4h39m) the timestamp moves to the extended field, and every
+// fmt 3 continuation of that message repeats it: reading those 4 bytes as payload
+// shifted the stream and cut it.
+func TestStreamerReadsTheExtendedTimestampOfContinuationChunks(t *testing.T) {
+	extended := []byte{0x01, 0x00, 0x00, 0x00}
+	in := []byte{
+		0x04,             // fmt 0, chunk stream 4
+		0xff, 0xff, 0xff, // timestamp in the extended field
+		0x00, 0x00, 200, // 200 bytes: the default 128-byte chunk splits it
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+	}
+	in = append(in, extended...)
+	in = append(in, bytes.Repeat([]byte{0xAA}, 128)...)
+	in = append(in, 0xC4) // fmt 3, chunk stream 4
+	in = append(in, extended...)
+	in = append(in, bytes.Repeat([]byte{0xBB}, 72)...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var msg ChunkMessage
+	_, timestamp, err := streamer.Read(&msg)
+	require.Nil(t, err)
+	require.Equal(t, uint32(0x01000000), timestamp)
+	content, _ := ioutil.ReadAll(msg.Message.(*message.VideoMessage).Payload)
+	require.Equal(t, append(bytes.Repeat([]byte{0xAA}, 128), bytes.Repeat([]byte{0xBB}, 72)...), content)
+}
+
+// Some writers, this library's own among them, leave the extended timestamp out
+// of fmt 3 chunks: the payload must not lose its first 4 bytes to it.
+func TestStreamerReadsContinuationChunksWithoutTheExtendedTimestamp(t *testing.T) {
+	in := []byte{
+		0x04,
+		0xff, 0xff, 0xff,
+		0x00, 0x00, 200,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+		0x01, 0x00, 0x00, 0x00, // extended timestamp
+	}
+	in = append(in, bytes.Repeat([]byte{0xAA}, 128)...)
+	in = append(in, 0xC4) // fmt 3, straight into the payload
+	in = append(in, bytes.Repeat([]byte{0xBB}, 72)...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var msg ChunkMessage
+	_, _, err := streamer.Read(&msg)
+	require.Nil(t, err)
+	content, _ := ioutil.ReadAll(msg.Message.(*message.VideoMessage).Payload)
+	require.Equal(t, append(bytes.Repeat([]byte{0xAA}, 128), bytes.Repeat([]byte{0xBB}, 72)...), content)
+}
+
+// A fmt 1 header can extend its delta instead of the timestamp: its fmt 3
+// continuations repeat the delta.
+func TestStreamerReadsTheExtendedDeltaOfContinuationChunks(t *testing.T) {
+	in := []byte{
+		0x04,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 1,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+		0xAA,
+		0x44,             // fmt 1, chunk stream 4
+		0xff, 0xff, 0xff, // delta in the extended field
+		0x00, 0x00, 200,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00, // extended delta
+	}
+	in = append(in, bytes.Repeat([]byte{0xBB}, 128)...)
+	in = append(in, 0xC4, 0x01, 0x00, 0x00, 0x00)
+	in = append(in, bytes.Repeat([]byte{0xCC}, 72)...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var first, second ChunkMessage
+	_, _, err := streamer.Read(&first)
+	require.Nil(t, err)
+	_, timestamp, err := streamer.Read(&second)
+	require.Nil(t, err)
+	require.Equal(t, uint32(0x01000000), timestamp)
+	content, _ := ioutil.ReadAll(second.Message.(*message.VideoMessage).Payload)
+	require.Equal(t, append(bytes.Repeat([]byte{0xBB}, 128), bytes.Repeat([]byte{0xCC}, 72)...), content)
 }

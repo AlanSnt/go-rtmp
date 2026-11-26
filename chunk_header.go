@@ -84,6 +84,7 @@ type chunkMessageHeader struct {
 	messageLength   uint32 // fmt = 0 | 1
 	messageTypeID   byte   // fmt = 0 | 1
 	messageStreamID uint32 // fmt = 0
+	extended        bool   // the timestamp came in the extended field
 }
 
 func decodeChunkMessageHeader(r io.Reader, fmt byte, buf []byte, mh *chunkMessageHeader) error {
@@ -111,6 +112,7 @@ func decodeChunkMessageHeader(r io.Reader, fmt byte, buf []byte, mh *chunkMessag
 				return err
 			}
 			mh.timestamp = binary.BigEndian.Uint32(cache32bits)
+			mh.extended = true
 		}
 
 	case 1:
@@ -130,6 +132,7 @@ func decodeChunkMessageHeader(r io.Reader, fmt byte, buf []byte, mh *chunkMessag
 				return err
 			}
 			mh.timestampDelta = binary.BigEndian.Uint32(cache32bits)
+			mh.extended = true
 		}
 
 	case 2:
@@ -146,6 +149,7 @@ func decodeChunkMessageHeader(r io.Reader, fmt byte, buf []byte, mh *chunkMessag
 				return err
 			}
 			mh.timestampDelta = binary.BigEndian.Uint32(cache32bits)
+			mh.extended = true
 		}
 
 	case 3:
