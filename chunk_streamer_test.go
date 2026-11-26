@@ -594,3 +594,30 @@ func TestStreamerRejectsAMessageShorterThanWhatItAlreadyHolds(t *testing.T) {
 	_, _, err := streamer.Read(&msg)
 	require.EqualError(t, err, "chunk stream 4 holds 128 bytes of a 10-byte message")
 }
+
+// Past 0xFFFFFF ms (4h39m) the timestamp moves to the extended field, and every
+// fmt 3 continuation of that message repeats it: reading those 4 bytes as payload
+// shifted the stream and cut it.
+func TestStreamerReadsTheExtendedTimestampOfContinuationChunks(t *testing.T) {
+	extended := []byte{0x01, 0x00, 0x00, 0x00}
+	in := []byte{
+		0x04,             // fmt 0, chunk stream 4
+		0xff, 0xff, 0xff, // timestamp in the extended field
+		0x00, 0x00, 200, // 200 bytes: the default 128-byte chunk splits it
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+	}
+	in = append(in, extended...)
+	in = append(in, bytes.Repeat([]byte{0xAA}, 128)...)
+	in = append(in, 0xC4) // fmt 3, chunk stream 4
+	in = append(in, extended...)
+	in = append(in, bytes.Repeat([]byte{0xBB}, 72)...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var msg ChunkMessage
+	_, timestamp, err := streamer.Read(&msg)
+	require.Nil(t, err)
+	require.Equal(t, uint32(0x01000000), timestamp)
+	content, _ := ioutil.ReadAll(msg.Message.(*message.VideoMessage).Payload)
+	require.Equal(t, append(bytes.Repeat([]byte{0xAA}, 128), bytes.Repeat([]byte{0xBB}, 72)...), content)
+}
