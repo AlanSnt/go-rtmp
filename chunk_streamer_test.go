@@ -573,6 +573,28 @@ func TestStreamerSkipsEmptyMessagesOfAnyType(t *testing.T) {
 	require.Equal(t, "next", string(content))
 }
 
+func TestStreamerRejectsANewMessageOverUnfinishedBytes(t *testing.T) {
+	firstChunk := append([]byte{
+		0x04,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 200,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+	}, bytes.Repeat([]byte{0xAA}, 128)...)
+	sameLengthChunk := append([]byte{
+		0x44,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 128, // as long as what is held: it used to come back holding the video's bytes
+		byte(message.TypeIDAudioMessage),
+	}, bytes.Repeat([]byte{0xBB}, 128)...)
+	in := append(firstChunk, sameLengthChunk...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var msg ChunkMessage
+	_, _, err := streamer.Read(&msg)
+	require.EqualError(t, err, "chunk stream 4 holds 128 bytes of a 128-byte message")
+}
+
 func TestStreamerRejectsAMessageShorterThanWhatItAlreadyHolds(t *testing.T) {
 	firstChunk := append([]byte{
 		0x04,

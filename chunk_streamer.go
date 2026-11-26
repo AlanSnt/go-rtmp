@@ -257,10 +257,13 @@ func (cs *ChunkStreamer) readChunk() (*ChunkStreamReader, error) {
 
 	//cs.logger.Debugf("(READ) MessageLength = %d, Current = %d", reader.messageLength, reader.buf.Len())
 
-	expectLen := int(reader.messageLength) - reader.buf.Len()
-	if expectLen < 0 {
+	// Only fmt 3 continues a message: any other header over unfinished bytes means
+	// the stream is out of step, and reading on would decode garbage.
+	if bh.fmt != 3 && reader.buf.Len() > 0 {
 		return nil, errors.Errorf("chunk stream %d holds %d bytes of a %d-byte message", bh.chunkStreamID, reader.buf.Len(), reader.messageLength)
 	}
+
+	expectLen := int(reader.messageLength) - reader.buf.Len()
 
 	if uint32(expectLen) > cs.peerState.chunkSize {
 		expectLen = int(cs.peerState.chunkSize)
