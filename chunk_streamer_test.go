@@ -697,3 +697,42 @@ func TestStreamerReadsTheExtendedDeltaOfContinuationChunks(t *testing.T) {
 	content, _ := ioutil.ReadAll(second.Message.(*message.VideoMessage).Payload)
 	require.Equal(t, append(bytes.Repeat([]byte{0xBB}, 128), bytes.Repeat([]byte{0xCC}, 72)...), content)
 }
+
+// An Abort Message drops the unfinished message of its chunk stream: the next
+// message there starts clean instead of being rejected as out of step.
+func TestStreamerDropsTheMessageAnAbortNames(t *testing.T) {
+	in := []byte{
+		0x04,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 200,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+	}
+	in = append(in, bytes.Repeat([]byte{0xAA}, 128)...)
+	in = append(in,
+		0x02, // fmt 0, chunk stream 2 (protocol control)
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 4,
+		byte(message.TypeIDAbortMessage),
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x04, // abort chunk stream 4
+	)
+	in = append(in,
+		0x04,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 3,
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+		'a', 'b', 'c',
+	)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var abort, next ChunkMessage
+	_, _, err := streamer.Read(&abort)
+	require.Nil(t, err)
+	require.Equal(t, &message.AbortMessage{ChunkStreamID: 4}, abort.Message)
+	_, _, err = streamer.Read(&next)
+	require.Nil(t, err)
+	content, _ := ioutil.ReadAll(next.Message.(*message.VideoMessage).Payload)
+	require.Equal(t, "abc", string(content))
+}
