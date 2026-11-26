@@ -99,6 +99,13 @@ func (cs *ChunkStreamer) Read(cmsg *ChunkMessage) (int, uint32, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	// An empty message carries nothing, and most types fail to decode from
+	// zero bytes, which would close the connection.
+	for reader.messageLength == 0 {
+		if reader, err = cs.NewChunkReader(); err != nil {
+			return 0, 0, err
+		}
+	}
 
 	cs.msgDec.Reset(reader)
 	if err := cs.msgDec.Decode(message.TypeID(reader.messageTypeID), &cmsg.Message); err != nil {

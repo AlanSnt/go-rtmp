@@ -542,30 +542,34 @@ func BenchmarkStreamerMultipleChunkRead(b *testing.B) {
 	}
 }
 
-func TestStreamerReadsAnEmptyMessageAndKeepsReading(t *testing.T) {
-	videoChunk := func(length byte, payload string) []byte {
+func TestStreamerSkipsEmptyMessagesOfAnyType(t *testing.T) {
+	chunk := func(typeID message.TypeID, payload string) []byte {
 		header := []byte{
 			0x04,             // fmt 0, chunk stream 4
 			0x00, 0x00, 0x00, // timestamp
-			0x00, 0x00, length,
-			byte(message.TypeIDVideoMessage),
+			0x00, 0x00, byte(len(payload)),
+			byte(typeID),
 			0x01, 0x00, 0x00, 0x00, // message stream 1
 		}
 		return append(header, payload...)
 	}
-	in := append(videoChunk(0, ""), videoChunk(4, "next")...)
+	var in []byte
+	for _, typeID := range []message.TypeID{
+		message.TypeIDVideoMessage,
+		message.TypeIDAudioMessage,
+		message.TypeIDDataMessageAMF0,
+		message.TypeIDCommandMessageAMF0,
+		message.TypeIDAck,
+	} {
+		in = append(in, chunk(typeID, "")...)
+	}
+	in = append(in, chunk(message.TypeIDVideoMessage, "next")...)
 	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
 
-	var empty ChunkMessage
-	_, _, err := streamer.Read(&empty)
-	require.Nil(t, err)
-	content, _ := ioutil.ReadAll(empty.Message.(*message.VideoMessage).Payload)
-	require.Empty(t, content)
-
 	var next ChunkMessage
-	_, _, err = streamer.Read(&next)
+	_, _, err := streamer.Read(&next)
 	require.Nil(t, err)
-	content, _ = ioutil.ReadAll(next.Message.(*message.VideoMessage).Payload)
+	content, _ := ioutil.ReadAll(next.Message.(*message.VideoMessage).Payload)
 	require.Equal(t, "next", string(content))
 }
 
