@@ -541,3 +541,52 @@ func BenchmarkStreamerMultipleChunkRead(b *testing.B) {
 		}
 	}
 }
+
+func TestStreamerReadsAnEmptyMessageAndKeepsReading(t *testing.T) {
+	videoChunk := func(length byte, payload string) []byte {
+		header := []byte{
+			0x04,             // fmt 0, chunk stream 4
+			0x00, 0x00, 0x00, // timestamp
+			0x00, 0x00, length,
+			byte(message.TypeIDVideoMessage),
+			0x01, 0x00, 0x00, 0x00, // message stream 1
+		}
+		return append(header, payload...)
+	}
+	in := append(videoChunk(0, ""), videoChunk(4, "next")...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var empty ChunkMessage
+	_, _, err := streamer.Read(&empty)
+	require.Nil(t, err)
+	content, _ := ioutil.ReadAll(empty.Message.(*message.VideoMessage).Payload)
+	require.Empty(t, content)
+
+	var next ChunkMessage
+	_, _, err = streamer.Read(&next)
+	require.Nil(t, err)
+	content, _ = ioutil.ReadAll(next.Message.(*message.VideoMessage).Payload)
+	require.Equal(t, "next", string(content))
+}
+
+func TestStreamerRejectsAMessageShorterThanWhatItAlreadyHolds(t *testing.T) {
+	firstChunk := append([]byte{
+		0x04,
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 200, // 200 bytes: the default 128-byte chunk leaves it unfinished
+		byte(message.TypeIDVideoMessage),
+		0x01, 0x00, 0x00, 0x00,
+	}, bytes.Repeat([]byte{0xAA}, 128)...)
+	shorterChunk := []byte{
+		0x44, // fmt 1, chunk stream 4
+		0x00, 0x00, 0x00,
+		0x00, 0x00, 10,
+		byte(message.TypeIDVideoMessage),
+	}
+	in := append(firstChunk, shorterChunk...)
+	streamer := NewChunkStreamer(bufio.NewReader(bytes.NewReader(in)), bufio.NewWriter(ioutil.Discard), nil)
+
+	var msg ChunkMessage
+	_, _, err := streamer.Read(&msg)
+	require.EqualError(t, err, "chunk stream 4 holds 128 bytes of a 10-byte message")
+}
