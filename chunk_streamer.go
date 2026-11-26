@@ -232,17 +232,24 @@ func (cs *ChunkStreamer) readChunk() (*ChunkStreamReader, error) {
 		reader.messageLength = mh.messageLength
 		reader.messageTypeID = mh.messageTypeID
 		reader.messageStreamID = mh.messageStreamID
+		reader.extendedTimestamp = mh.extended
 
 	case 1:
 		reader.timestampDelta = mh.timestampDelta
 		reader.messageLength = mh.messageLength
 		reader.messageTypeID = mh.messageTypeID
+		reader.extendedTimestamp = mh.extended
 
 	case 2:
 		reader.timestampDelta = mh.timestampDelta
+		reader.extendedTimestamp = mh.extended
 
 	case 3:
-		// DO NOTHING
+		if reader.extendedTimestamp {
+			if _, err := io.ReadFull(cs.r, cs.cacheBuffer[:4]); err != nil {
+				return nil, err
+			}
+		}
 
 	default:
 		panic("unsupported chunk") // TODO: fix
