@@ -122,6 +122,12 @@ func (cs *ChunkStreamer) Read(cmsg *ChunkMessage) (int, uint32, error) {
 
 	cmsg.StreamID = reader.messageStreamID
 
+	if abort, ok := cmsg.Message.(*message.AbortMessage); ok {
+		if aborted, ok := cs.readers[int(abort.ChunkStreamID)]; ok {
+			aborted.buf.Reset()
+		}
+	}
+
 	return reader.basicHeader.chunkStreamID, uint32(reader.timestamp), nil
 }
 
